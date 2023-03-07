@@ -30,7 +30,7 @@ pub mod optimization;
 pub mod core;
 
 static EPOCH: Lazy<Instant> = Lazy::new(Instant::now);
-const COST_COMPARATOR: fn(&Cost, &Cost) -> Ordering = |a: &Cost, b: &Cost| {
+const COST_COMPARATOR: fn(&Cost, &Cost) -> Ordering = |a: &Cost, b: &Cost| { //其实在比较的时候只用了excluded part area和leftover value.
     match a.part_area_excluded.cmp(&b.part_area_excluded) {
         Ordering::Equal => a.leftover_value.partial_cmp(&b.leftover_value).unwrap().reverse(),
         other => other
