@@ -1,0 +1,3 @@
+cargo run --release examples/small_example_input.json examples/config.json examples/small_example_result.json examples/small_example_result.html
+
+cargo run --release examples/large_example_input.json examples/config.json examples/large_example_result.json examples/large_example_result.html

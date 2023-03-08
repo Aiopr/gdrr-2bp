@@ -38,6 +38,7 @@ pub struct GDRR<'a> {
 impl<'a> GDRR<'a> {
     pub fn new(instance: &'a Instance, config: &'a Config, local_sol_collector: LocalSolCollector<'a>) -> Self {
         let problem = Problem::new(instance);
+        //problem 和 instance 其实是不一样的，problem是包含了一些layout的，problem更适合一般化问题
         leftover_valuator::set_power(config.leftover_valuation_power);
         let cost_comparator = crate::COST_COMPARATOR;
         Self {
@@ -58,6 +59,7 @@ impl<'a> GDRR<'a> {
         let empty_problem_cost = Cost::new(0, 0.0, self.instance.total_part_area(), 0);
 
         let mut lahc_history: VecDeque<Cost> = VecDeque::with_capacity(self.config.history_length);
+        //这里用了一个双端队列来维护历史记录中的cost，注意lahc history只记录了历史的cost
         lahc_history.push_back(empty_problem_cost.clone());
         let mut n_iterations = 0;
         let mut n_accepted = 0;
@@ -67,12 +69,13 @@ impl<'a> GDRR<'a> {
 
         while n_iterations < max_rr_iterations && !self.local_sol_collector.terminate() {
             let mat_limit_budget: i128 = match local_optimum.as_ref() {
-                Some(solution) => mat_limit as i128 - 1 - solution.cost().material_cost as i128,
-                None => mat_limit as i128 - 1 - self.problem.cost().material_cost as i128,
+                Some(solution) => mat_limit as i128 - 1 - solution.cost().material_cost as i128, 
+                None => mat_limit as i128 - 1 - self.problem.cost().material_cost as i128, 
             };
+            //mat_limit_budget <0 说明最优解或者当前的problem已经比限制能用的material要多了
 
             let mat_limit_budget = self.ruin(mat_limit_budget);
-            let max_part_area_not_included = match local_optimum.as_ref() {
+            let max_part_area_not_included = match local_optimum.as_ref() { //返回最大的没有被include的面积
                 Some(local_optimum) => u64::max(lahc_history.front().unwrap().part_area_excluded, local_optimum.cost().part_area_excluded),
                 None => lahc_history.front().unwrap().part_area_excluded
             };
@@ -138,7 +141,7 @@ impl<'a> GDRR<'a> {
 
     fn ruin(&mut self, mut mat_limit_budget: i128) -> i128 {
         let n_nodes_to_remove = self.problem.rng().gen_range(2..(self.config.avg_nodes_removed - 2) * 2 + 1) + 2;
-
+        //当avg_nodes_removed=6时，生成一个4-10的随机数
         if mat_limit_budget >= 0 {
             for _i in 0..n_nodes_to_remove {
                 //The bias sampler allows us to select a random layout for removing a node, but with a bias towards layouts with a low usage.
@@ -146,6 +149,8 @@ impl<'a> GDRR<'a> {
                 let entries = self.problem.layouts_mut().iter_mut()
                     .map(|(i, l)| (i, NotNan::new(l.usage(false)).expect("layout usage is NaN")))
                     .collect_vec();
+                //这里的layout其实就是我们说的pattern
+                //从所有的layout里面随机选择3个，进行排序，排序之后再按权重随机取一个layout出来。
                 let biased_sampler = BiasedSampler::new_default(entries, BiasMode::Low);
                 let selected_layout = biased_sampler.sample(&mut self.problem.rng());
 
@@ -155,7 +160,7 @@ impl<'a> GDRR<'a> {
                         let selected_node = removable_nodes.choose(&mut self.problem.rng()).unwrap();
 
                         let removed_layout = self.problem.remove_node(*selected_node, LayoutIndex::Existing(*layout_index));
-                        if let Some(removed_layout) = removed_layout {
+                        if let Some(removed_layout) = removed_layout { //如果成功删除了1个layout，就更新现在的mat_limit_budget.
                             mat_limit_budget += removed_layout.sheettype().value() as i128;
                         }
                     }
@@ -165,7 +170,7 @@ impl<'a> GDRR<'a> {
                 }
             }
         } else {
-            while mat_limit_budget < 0 {
+            while mat_limit_budget < 0 { //注意这里是while，所以有可能一直删下去
                 //Search the lowest usage layout
                 let min_usage_layout_index = self.problem.layouts_mut().iter_mut()
                     .map(|(i, l)| (i, l.usage(false)))
@@ -177,7 +182,7 @@ impl<'a> GDRR<'a> {
                 match min_usage_layout_index {
                     Some(min_usage_layout_index) => {
                         let top_node = self.problem.layouts()[min_usage_layout_index].top_node_index().clone();
-
+                        //这里应该是一个shallow copy
                         //release it and update mat_limit_exceedance
                         let removed_layout = self.problem.remove_node(top_node, LayoutIndex::Existing(min_usage_layout_index));
                         if let Some(removed_layout) = removed_layout {
@@ -187,6 +192,7 @@ impl<'a> GDRR<'a> {
                         }
                     }
                     None => {
+                        //这种情况感觉一般不会出现，加一个分类是为了安全。
                         break; //no existing layouts
                     }
                 }
@@ -198,10 +204,11 @@ impl<'a> GDRR<'a> {
     fn recreate(&mut self, mut mat_limit_budget: i128, max_part_area_excluded: u64) {
         let mut parttypes_to_consider: Vec<&PartType> = self.problem.parttype_qtys().iter().enumerate()
             .filter(|(_i, q)| { **q > 0 })
-            .map(|(i, _q)| -> &PartType { self.problem.instance().get_parttype(i) }).collect();
+            .map(|(i, _q)| -> &PartType { self.problem.instance().get_parttype(i) }).collect(); //返回数量大于0的part的集合
 
 
         let mut insertion_option_cache = InsertionOptionCache::new();
+        //multimap:对于1个键，可以有很多个值
         let mut part_area_not_included: u64 = 0;
 
         //Collect all the layouts which should be considered during this recreate iteration
@@ -210,7 +217,7 @@ impl<'a> GDRR<'a> {
                 .filter(|(_, l)| self.problem.sheettype_qtys()[l.sheettype().id()] > 0)
                 .map(|(i, l)| (LayoutIndex::Empty(i), l))
             )
-            .collect_vec();
+            .collect_vec(); //把所有的可用空间找出来，
 
         //Generate insertion options for all relevant parttypes and layouts
         insertion_option_cache.add_for_parttypes(&parttypes_to_consider, &layouts_to_consider);
