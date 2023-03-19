@@ -7,6 +7,7 @@ use ordered_float::NotNan;
 use rand::prelude::SliceRandom;
 use rand::Rng;
 use rand::rngs::SmallRng;
+use std::time::Instant;
 
 use crate::{Instance, PartType};
 use crate::core::cost::Cost;
@@ -202,6 +203,7 @@ impl<'a> GDRR<'a> {
     }
 
     fn recreate(&mut self, mut mat_limit_budget: i128, max_part_area_excluded: u64) {
+        let start = Instant::now();
         let mut parttypes_to_consider: Vec<&PartType> = self.problem.parttype_qtys().iter().enumerate()
             .filter(|(_i, q)| { **q > 0 })
             .map(|(i, _q)| -> &PartType { self.problem.instance().get_parttype(i) }).collect(); //返回数量大于0的part的集合
@@ -230,7 +232,7 @@ impl<'a> GDRR<'a> {
             if let Some(elected_blueprint) = elected_blueprint.as_ref() {
                 let cache_updates = self.problem.implement_insertion_blueprint(elected_blueprint);
                 insertion_option_cache.update_cache(&cache_updates, &parttypes_to_consider, &self.problem);
-
+        
                 if let LayoutIndex::Empty(index) = elected_blueprint.layout_index() {
                     //update mat_limit_budget
                     //remove the relevant empty_layout from consideration if the stock is empty
@@ -251,6 +253,10 @@ impl<'a> GDRR<'a> {
                     break;
                 }
 
+                // for (_, layout) in self.problem.layouts() {
+                //     println!("{:?}", layout.sorted_empty_nodes());
+                // }
+                //panic!("debug");
                 debug_assert!(assertions::insertion_option_cache_is_valid(&self.problem, &insertion_option_cache, &parttypes_to_consider), "{:#?}\n{:#?}", elected_blueprint, cache_updates);
             } else {
                 //if there is no insertion blueprint, the part cannot be added to the problem
@@ -262,6 +268,9 @@ impl<'a> GDRR<'a> {
                 debug_assert!(assertions::insertion_option_cache_is_valid(&self.problem, &insertion_option_cache, &parttypes_to_consider), "{:#?}", elected_blueprint);
             }
         }
+        println!("time cost: {:?} us", start.elapsed().as_micros());// us
+        println!("{}", self.problem.layouts().len());
+        panic!("debug");
     }
 
     fn select_next_parttype(parttypes: &[&'a PartType], insertion_option_cache: &InsertionOptionCache<'a>, rand: &mut SmallRng, config: &Config) -> &'a PartType {
@@ -272,7 +281,7 @@ impl<'a> GDRR<'a> {
             let parttype = parttypes[*i];
             insertion_option_cache.get_for_parttype(parttype).map_or(0, |options| options.len())
         }).collect();
-
+        
         let blink = blink::select_lowest_entry(&n_options, config.blink_rate, rand);
         let parttype_index = indices[blink];
         parttypes[parttype_index]
@@ -307,6 +316,10 @@ impl<'a> GDRR<'a> {
                         existing_layout_blueprints.sort_by(|a, b| {
                             cost_comparator(a.cost(), b.cost())
                         });
+                        // for blueprint in &existing_layout_blueprints {
+                        //     println!("{:?}", blueprint.cost());
+                        // }
+                        // println!();
                         //Select the best (blinked) one
                         let selected_blinked_index = blink::select_lowest_in_range(0..existing_layout_blueprints.len(), config.blink_rate, problem.rng());
                         Some(existing_layout_blueprints.remove(selected_blinked_index))

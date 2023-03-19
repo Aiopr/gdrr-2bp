@@ -14,7 +14,7 @@ use super::{parttype::PartType, sheettype::SheetType};
 pub struct Layout<'a> {
     id : usize,
     sheettype: &'a SheetType,
-    nodes: Arena<Node<'a>>,
+    nodes: Arena<Node<'a>>, //这里应该是一个线性结构，支持常数时间的插入和删除
     top_node_i: Index,
     cached_cost: Option<Cost>,
     cached_usage: Option<f64>,
@@ -213,6 +213,7 @@ impl<'a> Layout<'a> {
         let node_index = self.nodes.insert(node);
 
         //All empty nodes need to be added to the sorted empty nodes list
+        //将新的空结点二分插入排序好的empty nodes中
         if is_empty {
             debug_assert!(self.nodes[node_index].is_empty());
             let node_area = self.nodes[node_index].area();
@@ -242,6 +243,7 @@ impl<'a> Layout<'a> {
 
         //All empty nodes need to be removed from the sorted empty nodes list
         let node = &self.nodes[node_index];
+        
         if node.is_empty() {
             let lower_index = self.sorted_empty_nodes.partition_point(|n|
                 { self.nodes[*n].area() > node.area() });
